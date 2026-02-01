@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Train Game for Kids</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            background-color: #87CEEB; /* Sky blue */
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+            user-select: none;
+        }
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+        }
+        canvas {
+            background-color: #f0f0f0;
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            pointer-events: none;
+        }
+        .instructions {
+            background: rgba(255, 255, 255, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+        }
+        h1 {
+            margin: 0 0 10px 0;
+            color: #333;
+            font-size: 24px;
+        }
+        p {
+            margin: 5px 0;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <div id="ui">
+            <div class="instructions">
+                <h1>🚂 Happy Train!</h1>
+                <p>🖱️ Click the Coal Wagon to throw coal!</p>
+                <p>⌨️ Press any key for a boost! (↑) to jump!</p>
+                <p>🎮 Gamepad: any button to boost, (A) to throw, (B) to jump!</p>
+                <p id="speed-text">Speed: 0</p>
+                <p id="distance-text">Distance: 0.0 km</p>
+            </div>
+        </div>
+        <div id="level-complete" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(255, 255, 255, 0.9); padding: 30px; border-radius: 20px; text-align: center; border: 5px solid #D32F2F; z-index: 100;">
+            <h2 style="font-size: 48px; margin: 0; color: #D32F2F;">🎉 GOAL! 🎉</h2>
+            <p style="font-size: 24px;">You reached 10 km!</p>
+            <button onclick="location.reload()" style="font-size: 24px; padding: 10px 20px; cursor: pointer; background: #4CAF50; color: white; border: none; border-radius: 10px; margin-top: 20px;">Play Again</button>
+        </div>
+        <canvas id="gameCanvas"></canvas>
+    </div>
+    <script src="game.js"></script>
+</body>
+</html>
