@@ -514,7 +514,7 @@ function drawGuy(ctx, x, y, speed) {
         ctx.lineWidth = 3;
         ctx.textAlign = 'center';
         ctx.font = `bold ${Math.floor(16 + speed * 2)}px 'Arial Black', Arial, sans-serif`;
-        const text = "THE FASTER WE GO!!!";
+        const text = "WOOOHOOO!!!";
         const textX = x + 25;
         const textY = y - 60 - (Math.abs(Math.sin(Date.now() / 100)) * 10);
         
