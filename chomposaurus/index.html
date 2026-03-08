@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chompasaurus Rex</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="game-shell">
+      <header class="top-bar">
+        <h1>Chompasaurus Rex</h1>
+        <button id="fullscreen-toggle" type="button" aria-label="Toggle fullscreen">
+          Fullscreen
+        </button>
+        <button id="music-toggle" type="button" aria-label="Toggle music">
+          Music: ON
+        </button>
+      </header>
+
+      <section class="hud" aria-label="Game status">
+        <div class="hud-item">Level <span id="hud-level">1</span></div>
+        <div class="hud-item">Eaten <span id="hud-eaten">0</span>/<span id="hud-target">0</span></div>
+        <div class="hud-item">Time <span id="hud-time">0:00</span></div>
+        <div class="hud-item">Score <span id="hud-score">0</span></div>
+        <div class="hud-item">Size <span id="hud-size">1.00x</span></div>
+        <div class="hud-item health-item">
+          Health
+          <div class="health-bar" role="meter" aria-label="Health" aria-valuemin="0" aria-valuemax="100">
+            <div id="hud-health-fill" class="health-fill"></div>
+          </div>
+          <span id="hud-health-text">100</span>
+        </div>
+      </section>
+
+      <section id="canvas-wrap" class="canvas-wrap">
+        <canvas
+          id="game-canvas"
+          width="1280"
+          height="720"
+          aria-label="Dinosaur game canvas"
+        ></canvas>
+
+        <div id="overlay" class="overlay">
+          <div class="overlay-card">
+            <h2 id="overlay-title">Chompasaurus Rex</h2>
+            <p id="overlay-message"></p>
+            <p id="overlay-hint"></p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>

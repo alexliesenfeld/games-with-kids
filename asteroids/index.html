@@ -1,0 +1,1045 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Space Shooter - Browser & Xbox</title>
+    <style>
+      :root {
+        --panel: rgba(12, 20, 38, 0.8);
+        --text: #e8f0ff;
+        --accent: #79ffb0;
+        --danger: #ff8484;
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: black;
+        font-family: "Trebuchet MS", "Arial Rounded MT", Arial, sans-serif;
+      }
+
+      #game {
+        width: 100%;
+        height: 100%;
+        display: block;
+        background: radial-gradient(circle at center, #0f1a34 0%, #05070f 55%, #000 100%);
+      }
+
+      #hud {
+        position: fixed;
+        top: 10px;
+        left: 10px;
+        color: var(--text);
+        background: var(--panel);
+        border: 1px solid rgba(188, 228, 255, 0.22);
+        border-radius: 12px;
+        padding: 10px;
+        z-index: 2;
+        font-size: 14px;
+        line-height: 1.35;
+        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+        backdrop-filter: blur(4px);
+      }
+
+      #hud b {
+        color: var(--accent);
+      }
+
+      #hud button {
+        margin-top: 6px;
+        padding: 8px 10px;
+        font: inherit;
+        border: 1px solid rgba(188, 228, 255, 0.45);
+        background: rgba(10, 16, 32, 0.95);
+        color: var(--text);
+        border-radius: 8px;
+        cursor: pointer;
+      }
+
+      #overlay {
+        position: fixed;
+        inset: 0;
+        display: none;
+        place-items: center;
+        z-index: 3;
+        background: rgba(2, 3, 6, 0.85);
+        color: var(--text);
+        text-align: center;
+        letter-spacing: 0.8px;
+        text-transform: uppercase;
+        font-size: 22px;
+      }
+
+      #overlay.visible {
+        display: grid;
+      }
+
+      #overlay .panel {
+        background: linear-gradient(180deg, rgba(12, 20, 38, 0.95), rgba(9, 14, 24, 0.95));
+        border: 1px solid rgba(128, 255, 176, 0.45);
+        padding: 28px 34px;
+        border-radius: 16px;
+      }
+
+      #overlay .warn {
+        color: var(--danger);
+        margin-top: 10px;
+        font-size: 16px;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+
+    <div id="hud">
+      <div><b>Space Shooter</b> (Xbox + Browser)</div>
+        <div>
+        Score: <span id="score">0</span> |
+        Lives: <span id="lives">3</span> |
+        Coins: <span id="coins">0</span> |
+        Wave: <span id="wave">1</span> |
+        Speed: <span id="speed">200</span>
+      </div>
+      <div id="status">Connect an Xbox controller and press a button.</div>
+      <button id="fullscreenBtn">Toggle fullscreen</button>
+    </div>
+
+    <div id="overlay" aria-live="polite">
+      <div class="panel">
+        <div id="overlayTitle">Game Over</div>
+        <div class="warn" id="overlaySub">Enter (keyboard) or Start (Xbox) to restart</div>
+      </div>
+    </div>
+
+    <script>
+      (() => {
+        const canvas = document.getElementById("game");
+        const ctx = canvas.getContext("2d");
+
+        const scoreEl = document.getElementById("score");
+        const livesEl = document.getElementById("lives");
+        const coinsEl = document.getElementById("coins");
+        const waveEl = document.getElementById("wave");
+        const speedEl = document.getElementById("speed");
+        const statusEl = document.getElementById("status");
+        const overlay = document.getElementById("overlay");
+        const overlayTitle = document.getElementById("overlayTitle");
+        const overlaySub = document.getElementById("overlaySub");
+        const fullscreenBtn = document.getElementById("fullscreenBtn");
+
+        const TWOPI = Math.PI * 2;
+        const dpr = window.devicePixelRatio || 1;
+
+        const keys = new Set();
+        const playerBullets = [];
+        const enemyBullets = [];
+        const enemies = [];
+        const asteroids = [];
+        const coins = [];
+        const stars = [];
+
+        let width = 0;
+        let height = 0;
+        let lastTime = 0;
+        let gamepadIndex = null;
+        let prevStartPressed = false;
+        let prevPausePressed = false;
+        let lastId = 0;
+
+        const state = {
+          score: 0,
+          lives: 5,
+          wave: 1,
+          gameOver: false,
+          paused: false,
+          nextWaveIn: 0,
+          nextAsteroidIn: 1.2,
+          coinsCollected: 0,
+          baseSpeed: 140,
+          driftX: 0,
+          scrollY: 0
+        };
+
+        let ship = createShip();
+
+        const input = {
+          left: false,
+          right: false,
+          up: false,
+          down: false,
+          moveX: 0,
+          moveY: 0,
+          aimX: 0,
+          aimY: 0,
+          shoot: false,
+          boost: false
+        };
+
+        function rand(min, max) {
+          return Math.random() * (max - min) + min;
+        }
+
+        function clamp(value, min, max) {
+          return Math.max(min, Math.min(max, value));
+        }
+
+        function createShip() {
+          return {
+            x: width / 2,
+            y: height * 0.84,
+            vx: 0,
+            vy: 0,
+            r: 14,
+            speed: 430,
+            drag: 0.9,
+            shootCooldown: 0,
+            invuln: 1.7,
+            flash: 0,
+            aimAngle: -Math.PI / 2
+          };
+        }
+
+        function createEnemy() {
+          const x = rand(70, width - 70);
+          return {
+            id: lastId++,
+            x,
+            y: -rand(60, 250),
+            r: rand(18, 25),
+            speed: rand(35, 85),
+            vx: rand(-20, 20),
+            hp: 1,
+            shootCooldown: rand(1.8, 3.4),
+            flash: 0,
+            type: Math.random() < 0.5 ? "drone" : "ranger",
+            phase: Math.random() * TWOPI
+          };
+        }
+
+        function createAsteroid() {
+          const x = rand(28, width - 28);
+          const r = rand(15, 40);
+          return {
+            id: lastId++,
+            x,
+            y: -rand(80, 210),
+            vx: rand(-26, 26),
+            vy: rand(38, 95),
+            r,
+            rot: rand(0, TWOPI),
+            spin: rand(-1.8, 1.8)
+          };
+        }
+
+        function createCoin(x = null, y = null) {
+          return {
+            id: lastId++,
+            x: x ?? rand(26, width - 26),
+            y: y ?? -rand(30, 120),
+            vx: rand(-20, 20),
+            vy: rand(50, 95),
+            r: 8,
+            value: rand(8, 18),
+            tw: Math.random() * TWOPI
+          };
+        }
+
+        function createProjectile(x, y, vx, vy, r, life, color) {
+          return {
+            x,
+            y,
+            vx,
+            vy,
+            r,
+            life,
+            color,
+            colorPulse: 0
+          };
+        }
+
+        function reset() {
+          ship = createShip();
+          playerBullets.length = 0;
+          enemyBullets.length = 0;
+          enemies.length = 0;
+          asteroids.length = 0;
+          coins.length = 0;
+          state.score = 0;
+          state.lives = 5;
+          state.wave = 1;
+          state.gameOver = false;
+          state.paused = false;
+          state.nextWaveIn = 0.6;
+          state.nextAsteroidIn = rand(0.8, 1.5);
+          state.coinsCollected = 0;
+          state.baseSpeed = 140;
+          state.scrollY = 0;
+          spawnWave();
+          overlay.classList.remove("visible");
+          overlaySub.textContent = "Enter (keyboard) or Start (Xbox) to restart";
+          overlayTitle.textContent = "Ready";
+          updateHUD();
+          statusEl.textContent = gamepadIndex === null
+            ? "Connect an Xbox controller and press a button."
+            : `Controller connected (#${gamepadIndex + 1})`;
+        }
+
+        function resize() {
+          width = window.innerWidth;
+          height = window.innerHeight;
+          canvas.width = Math.floor(width * dpr);
+          canvas.height = Math.floor(height * dpr);
+          canvas.style.width = `${width}px`;
+          canvas.style.height = `${height}px`;
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          ship = createShip();
+          buildStars();
+        }
+
+        function buildStars() {
+          stars.length = 0;
+          const layers = [1, 1.6, 2.5, 3.8];
+          layers.forEach((depth, i) => {
+            const count = Math.floor((width * height) / (9500 - i * 1200));
+            for (let j = 0; j < count; j++) {
+              stars.push({
+                x: Math.random() * width,
+                y: Math.random() * height,
+                r: 0.2 + Math.random() * 1.6,
+                depth,
+                tw: Math.random() * 0.8 + 0.2
+              });
+            }
+          });
+        }
+
+        function getCameraSpeed() {
+          const boost = input.boost ? 1.45 : 1;
+          return state.baseSpeed * boost;
+        }
+
+        function updateShipAim() {
+          const aimX = input.aimX;
+          const aimY = input.aimY;
+          const movingX = input.moveX;
+          const movingY = input.moveY;
+
+          if (Math.abs(aimX) > 0.05 || Math.abs(aimY) > 0.05) {
+            ship.aimAngle = Math.atan2(aimY, aimX);
+          } else if (movingX !== 0 || movingY !== 0) {
+            ship.aimAngle = Math.atan2(movingY, movingX);
+          }
+        }
+
+        function hasManualAimInput() {
+          return Math.hypot(input.aimX, input.aimY) > 0.1;
+        }
+
+        function spawnWave() {
+          const count = Math.max(1, 1 + Math.floor((state.wave - 1) / 2));
+          for (let i = 0; i < count; i++) {
+            enemies.push(createEnemy());
+          }
+        }
+
+        function updateShip(dt) {
+          const ax = clamp(input.moveX, -1, 1);
+          const ay = clamp(input.moveY, -1, 1);
+
+          ship.vx += ax * ship.speed * 0.18 * dt;
+          ship.vy += ay * ship.speed * 0.16 * dt;
+
+          ship.vx *= Math.pow(ship.drag, dt * 6);
+          ship.vy *= Math.pow(ship.drag, dt * 6);
+
+          const max = 300;
+          ship.vx = clamp(ship.vx, -max, max);
+          ship.vy = clamp(ship.vy, -max, max);
+
+          ship.x += ship.vx * dt;
+          ship.y += ship.vy * dt;
+
+          ship.x = clamp(ship.x, 30, width - 30);
+          ship.y = clamp(ship.y, height * 0.5, height - 28);
+
+          ship.shootCooldown = Math.max(0, ship.shootCooldown - dt);
+          updateShipAim();
+          if (input.shoot && ship.shootCooldown <= 0) {
+            firePlayerBullet();
+          }
+
+          state.driftX = -ship.vx * 0.18;
+        }
+
+        function firePlayerBullet() {
+          const spread = ship.vx * 0.004;
+          const angle = ship.aimAngle;
+          const velocityX = Math.cos(angle) * 1020;
+          const velocityY = Math.sin(angle) * 1020;
+          const y = ship.y - ship.r - 1;
+          playerBullets.push(createProjectile(ship.x + 2, y, velocityX + spread * 0.35, velocityY, 3.5, 1.7, "#ffd977"));
+          playerBullets.push(createProjectile(ship.x - 2, y, velocityX + spread * 0.35, velocityY, 3.5, 1.7, "#ffe7a0"));
+          playerBullets.push(createProjectile(ship.x, y - 4, velocityX + spread * 0.02, velocityY, 3.8, 1.7, "#ffffff"));
+          ship.shootCooldown = 0.08;
+        }
+
+        function assistPlayerBullets(dt) {
+          if (enemies.length === 0) return;
+          for (const b of playerBullets) {
+            let target = null;
+            let best = 999999;
+            for (const e of enemies) {
+              const d = Math.hypot(e.x - b.x, e.y - b.y);
+              if (d < best) {
+                best = d;
+                target = e;
+              }
+            }
+            if (!target) continue;
+
+            const speed = 1020;
+            const angle = Math.atan2(target.y - b.y, target.x - b.x);
+            const tx = Math.cos(angle) * speed;
+            const ty = Math.sin(angle) * speed;
+            const pull = 1.2 * dt;
+            b.vx += (tx - b.vx) * pull;
+            b.vy += (ty - b.vy) * pull;
+          }
+        }
+
+        function fireEnemyBullet(enemy) {
+          const jitter = rand(-0.2, 0.2);
+          const dx = ship.x - enemy.x;
+          const dy = ship.y - enemy.y;
+          const angle = Math.atan2(dy, dx) + jitter;
+          enemyBullets.push(createProjectile(
+            enemy.x,
+            enemy.y,
+            Math.cos(angle) * 260,
+            Math.sin(angle) * 260,
+            2.2,
+            2.0,
+            "#ff8383"
+          ));
+          enemy.shootCooldown = rand(2.8, 4.6);
+        }
+
+        function updateProjectiles(dt) {
+          if (!hasManualAimInput()) {
+            assistPlayerBullets(dt);
+          }
+          for (let i = playerBullets.length - 1; i >= 0; i--) {
+            const b = playerBullets[i];
+            b.x += b.vx * dt;
+            b.y += b.vy * dt;
+            b.life -= dt;
+            if (b.y < -12 || b.x < -12 || b.x > width + 12 || b.life <= 0) {
+              playerBullets.splice(i, 1);
+            }
+          }
+
+          for (let i = enemyBullets.length - 1; i >= 0; i--) {
+            const b = enemyBullets[i];
+            b.x += b.vx * dt;
+            b.y += b.vy * dt;
+            b.life -= dt;
+            if (b.life <= 0 || b.y > height + 16 || b.x < -16 || b.x > width + 16) {
+              enemyBullets.splice(i, 1);
+            }
+          }
+        }
+
+        function updateAsteroids(dt) {
+          for (let i = asteroids.length - 1; i >= 0; i--) {
+            const a = asteroids[i];
+            a.x += (a.vx + state.driftX) * dt;
+            a.y += (a.vy + getCameraSpeed() * 0.18) * dt;
+            a.rot += a.spin * dt;
+            if (a.y - a.r > height || a.x < -80 || a.x > width + 80) {
+              asteroids.splice(i, 1);
+            }
+          }
+        }
+
+        function updateCoins(dt) {
+          for (let i = coins.length - 1; i >= 0; i--) {
+            const c = coins[i];
+            c.x += (c.vx + state.driftX * 0.2) * dt;
+            c.y += (c.vy + getCameraSpeed() * 0.05) * dt;
+            c.vy *= 0.985;
+            c.tw += dt * 5;
+
+            if (c.y - c.r > height || c.x < -30 || c.x > width + 30) {
+              coins.splice(i, 1);
+              continue;
+            }
+
+            if (dist(c.x, c.y, ship.x, ship.y) < ship.r + c.r) {
+              state.score += Math.round(c.value);
+              state.coinsCollected += 1;
+              coins.splice(i, 1);
+              if (Math.random() < 0.08) {
+                state.lives += 1;
+              }
+              updateHUD();
+            }
+          }
+        }
+
+        function updateWorld(dt) {
+          const scroll = getCameraSpeed();
+          state.scrollY += scroll * dt;
+
+          for (const s of stars) {
+            s.y += scroll * (0.15 * s.depth) * dt;
+            s.x += state.driftX * 0.25 * dt;
+            if (s.y > height + 4) s.y = -4;
+            if (s.x < -4) s.x = width + 4;
+            else if (s.x > width + 4) s.x = -4;
+          }
+        }
+
+        function updateEnemies(dt) {
+          for (let i = enemies.length - 1; i >= 0; i--) {
+            const e = enemies[i];
+            const speed = e.speed + getCameraSpeed() * 0.2;
+            e.phase += dt * 2.4;
+            e.x += e.vx * 0.22 * dt + Math.sin(e.phase) * 6 * dt;
+            e.y += speed * dt;
+
+            if (e.x < 20 || e.x > width - 20) {
+              e.vx *= -1;
+              e.x = clamp(e.x, 20, width - 20);
+            }
+
+            if (e.y > height + e.r + 40) {
+              enemies.splice(i, 1);
+              state.score = Math.max(0, state.score - 15);
+              continue;
+            }
+
+            if (e.type === "ranger" && e.x <= 8) {
+              e.vx = Math.abs(e.vx);
+            }
+
+            e.flash = Math.max(0, e.flash - dt);
+
+            e.shootCooldown -= dt;
+            if (e.shootCooldown <= 0 && Math.random() < 0.35 && e.y > 18 && e.y < height - 80) {
+              fireEnemyBullet(e);
+            }
+          }
+        }
+
+        function handleCombat() {
+          if (state.gameOver) return;
+
+          for (let bi = playerBullets.length - 1; bi >= 0; bi--) {
+            const b = playerBullets[bi];
+            let shot = false;
+            for (let ei = enemies.length - 1; ei >= 0; ei--) {
+              const e = enemies[ei];
+              if (dist(b.x, b.y, e.x, e.y) <= b.r + e.r + 4) {
+                playerBullets.splice(bi, 1);
+                e.flash = 0.1;
+                if (Math.random() < 0.55) {
+                  coins.push(createCoin(e.x, e.y));
+                }
+                enemies.splice(ei, 1);
+                state.score += Math.round(80 + e.r * 2 + (e.type === "ranger" ? 24 : 0));
+                updateHUD();
+                shot = true;
+                break;
+              }
+            }
+
+            if (shot) continue;
+
+            for (let ai = asteroids.length - 1; ai >= 0; ai--) {
+              const a = asteroids[ai];
+              if (dist(b.x, b.y, a.x, a.y) <= b.r + a.r + 2) {
+                playerBullets.splice(bi, 1);
+                asteroids.splice(ai, 1);
+                state.score += 45;
+                if (Math.random() < 0.45) {
+                  coins.push(createCoin(a.x, a.y));
+                }
+                updateHUD();
+                shot = true;
+                break;
+              }
+            }
+          }
+
+          for (let i = asteroids.length - 1; i >= 0; i--) {
+            const a = asteroids[i];
+            if (dist(ship.x, ship.y, a.x, a.y) < ship.r + a.r) {
+              asteroids.splice(i, 1);
+              damagePlayer(1);
+              return;
+            }
+          }
+
+          if (ship.invuln > 0) return;
+
+          for (let i = enemies.length - 1; i >= 0; i--) {
+            const e = enemies[i];
+            if (dist(ship.x, ship.y, e.x, e.y) < ship.r + e.r) {
+              enemies.splice(i, 1);
+              damagePlayer(1);
+              return;
+            }
+          }
+
+          for (let i = enemyBullets.length - 1; i >= 0; i--) {
+            const b = enemyBullets[i];
+            if (dist(ship.x, ship.y, b.x, b.y) < ship.r + b.r) {
+              enemyBullets.splice(i, 1);
+              damagePlayer(1);
+              return;
+            }
+          }
+        }
+
+        function damagePlayer() {
+          state.lives -= 1;
+          ship.invuln = 2;
+          ship.flash = 0.25;
+          ship.x = width / 2;
+          ship.y = height * 0.84;
+          ship.vx = 0;
+          ship.vy = 0;
+
+          if (state.lives <= 0) {
+            state.gameOver = true;
+            overlayTitle.textContent = "Game Over";
+            overlaySub.textContent = `Final score: ${Math.floor(state.score)} · Enter/Start to restart`;
+            overlay.classList.add("visible");
+            statusEl.textContent = "Game over. Press Enter or Start to restart.";
+          }
+
+          updateHUD();
+        }
+
+        function updateHUD() {
+          scoreEl.textContent = Math.floor(state.score);
+          livesEl.textContent = `${state.lives} ${state.lives === 1 ? "life" : "lives"}`;
+          coinsEl.textContent = state.coinsCollected;
+          waveEl.textContent = state.wave;
+          speedEl.textContent = Math.round(getCameraSpeed());
+        }
+
+        function updateWaves(dt) {
+          if (state.gameOver) return;
+          if (state.nextWaveIn > 0) {
+            state.nextAsteroidIn = Math.max(0, state.nextAsteroidIn - dt);
+            if (state.nextAsteroidIn <= 0) {
+              asteroids.push(createAsteroid());
+              state.nextAsteroidIn = rand(1.1, 2.0);
+            }
+            state.nextWaveIn = Math.max(0, state.nextWaveIn - dt);
+            if (Math.random() < 0.025 * dt * 60) {
+              coins.push(createCoin());
+            }
+            return;
+          }
+
+          if (enemies.length === 0) {
+            state.wave += 1;
+            state.baseSpeed += 2;
+            state.nextWaveIn = 1.2;
+            state.nextAsteroidIn = rand(0.6, 1.1);
+          }
+
+          if (state.nextWaveIn > 0) {
+            state.nextWaveIn = Math.max(0, state.nextWaveIn - dt);
+            if (state.nextWaveIn <= 0) {
+              spawnWave();
+            }
+          }
+
+          if (state.score > 0) {
+            state.score += dt * 2;
+          }
+
+          if (Math.random() < 0.012 * dt * 60) {
+            coins.push(createCoin());
+          }
+        }
+
+        function dist(x1, y1, x2, y2) {
+          const dx = x1 - x2;
+          const dy = y1 - y2;
+          return Math.hypot(dx, dy);
+        }
+
+        function draw() {
+          ctx.clearRect(0, 0, width, height);
+
+          for (const s of stars) {
+            const flicker = (Math.sin(performance.now() * 0.002 + s.tw * 40) + 1) * 0.5;
+            ctx.fillStyle = `rgba(150, 190, 255, ${0.22 + flicker * 0.45})`;
+            const y = s.y;
+            const x = s.x;
+            ctx.beginPath();
+            ctx.arc(x, y, s.r * s.depth * 0.28, 0, TWOPI);
+            ctx.fill();
+            ctx.fillRect(x - 0.8, y, s.r * 2.7, s.depth * 2.2 + 0.6);
+          }
+
+          for (const e of enemies) {
+            drawEnemy(e);
+          }
+
+          for (const a of asteroids) {
+            drawAsteroid(a);
+          }
+
+          for (const c of coins) {
+            drawCoin(c);
+          }
+
+          for (const b of playerBullets) {
+            ctx.fillStyle = b.color;
+            ctx.beginPath();
+            ctx.arc(b.x, b.y, b.r, 0, TWOPI);
+            ctx.fill();
+            ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
+            ctx.beginPath();
+            ctx.arc(b.x - 1, b.y + 3, b.r * 0.45, 0, TWOPI);
+            ctx.fill();
+          }
+
+          for (const b of enemyBullets) {
+            ctx.fillStyle = b.color;
+            ctx.beginPath();
+            ctx.arc(b.x, b.y, b.r, 0, TWOPI);
+            ctx.fill();
+          }
+
+          drawShip();
+
+          if (state.paused && !state.gameOver) {
+            ctx.fillStyle = "#9ef5ff";
+            ctx.font = "bold 22px Trebuchet MS, Arial, sans-serif";
+            ctx.textAlign = "center";
+            ctx.fillText("PAUSED", width / 2, 50);
+          }
+
+          if (state.gameOver) {
+            ctx.fillStyle = "#ff9f9f";
+            ctx.font = "bold 22px Trebuchet MS, Arial, sans-serif";
+            ctx.textAlign = "center";
+            ctx.fillText("GAME OVER", width / 2, 52);
+            ctx.font = "16px Trebuchet MS, Arial, sans-serif";
+            ctx.fillText("Enter / Start to restart", width / 2, 78);
+          }
+        }
+
+        function drawEnemy(enemy) {
+          const blink = enemy.flash > 0;
+          ctx.save();
+          ctx.translate(enemy.x, enemy.y);
+          ctx.fillStyle = blink ? "rgba(255, 170, 160, 0.22)" : "rgba(120, 185, 255, 0.18)";
+          ctx.strokeStyle = blink ? "#ffd0b0" : "#8ed8ff";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(enemy.r, 0);
+          ctx.lineTo(-enemy.r * 0.8, enemy.r * 0.8);
+          ctx.lineTo(-enemy.r * 1.05, 0);
+          ctx.lineTo(-enemy.r * 0.8, -enemy.r * 0.8);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+          ctx.restore();
+
+          const barW = enemy.r * 2.2;
+          const barX = enemy.x - barW / 2;
+          const barY = enemy.y - enemy.r - 8;
+          const maxHp = 1;
+          ctx.fillStyle = "rgba(15, 10, 25, 0.6)";
+          ctx.fillRect(barX, barY, barW, 3);
+          ctx.fillStyle = "#6dff9a";
+          ctx.fillRect(barX, barY, barW * (enemy.hp / maxHp), 3);
+        }
+
+        function drawAsteroid(asteroid) {
+          ctx.save();
+          ctx.translate(asteroid.x, asteroid.y);
+          ctx.rotate(asteroid.rot);
+          ctx.strokeStyle = "rgba(120, 120, 140, 0.9)";
+          ctx.fillStyle = "rgba(90, 90, 120, 0.24)";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(asteroid.r, 0);
+          for (let i = 1; i <= 10; i++) {
+            const a = (i / 10) * TWOPI;
+            const fuzz = (i % 2 === 0 ? 1 : 0.82) * (Math.sin((asteroid.r + i) * 0.24) * 0.28);
+            const rr = asteroid.r * (1 + fuzz);
+            ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr * 0.9);
+          }
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        function drawCoin(coin) {
+          const glow = 0.65 + Math.sin(coin.tw) * 0.2;
+          ctx.save();
+          ctx.translate(coin.x, coin.y);
+          ctx.fillStyle = `rgba(255, 215, 120, ${glow})`;
+          ctx.beginPath();
+          ctx.arc(0, 0, coin.r, 0, TWOPI);
+          ctx.fill();
+          ctx.fillStyle = "rgba(255, 255, 200, 0.95)";
+          ctx.beginPath();
+          ctx.arc(0, 0, coin.r * 0.4, 0, TWOPI);
+          ctx.fill();
+          ctx.restore();
+        }
+
+        function drawShip() {
+          if (ship.invuln > 0 && ship.flash > 0) return;
+          ctx.save();
+          ctx.translate(ship.x, ship.y);
+          const tilt = clamp(-ship.vx / 500, -0.35, 0.35);
+          ctx.rotate(tilt);
+          ctx.strokeStyle = "#bbf4ff";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(0, -ship.r);
+          ctx.lineTo(ship.r + 2, 0);
+          ctx.lineTo(0, ship.r * 1.1);
+          ctx.lineTo(-ship.r, ship.r * 0.2);
+          ctx.closePath();
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.moveTo(-ship.r * 0.45, ship.r * 0.15);
+          ctx.lineTo(-ship.r * 1.7, ship.r * 0.7);
+          ctx.lineTo(-ship.r * 0.45, ship.r * 0.33);
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.moveTo(-ship.r * 0.1, ship.r * 0.42);
+          ctx.lineTo(-ship.r * 1.4, ship.r * 0.95);
+          ctx.lineTo(-ship.r * 0.12, ship.r * 0.6);
+          ctx.stroke();
+
+          if (ship.flash > 0 || ship.invuln > 0.4) {
+            const p = 0.18 + Math.sin(performance.now() * 0.02) * 0.05;
+            ctx.fillStyle = `rgba(255, 210, 130, ${p})`;
+            ctx.fillRect(-ship.r * 1.35, ship.r * 0.85, ship.r * 3.2, 2.2);
+          }
+
+          if (ship.boosting) {
+            ctx.strokeStyle = "#ffd56f";
+            ctx.beginPath();
+            ctx.moveTo(-ship.r * 0.2, ship.r * 0.95);
+            ctx.lineTo(-ship.r * 1.5, ship.r * 1.5);
+            ctx.lineTo(-ship.r * 0.2, ship.r * 1.45);
+            ctx.stroke();
+          }
+          ctx.restore();
+          ship.flash = Math.max(0, ship.flash - 0.05);
+        }
+
+        function deadzone(v) {
+          const d = 0.2;
+          if (Math.abs(v) < d) return 0;
+          return Math.sign(v) * (Math.abs(v) - d) / (1 - d);
+        }
+
+        function getGamepadInput() {
+          if (gamepadIndex === null) return;
+          const gp = navigator.getGamepads ? navigator.getGamepads()[gamepadIndex] : null;
+          if (!gp) return;
+
+          const gx = gp.axes || [];
+          const leftX = deadzone(typeof gx[0] === "number" ? gx[0] : 0);
+          const leftY = deadzone(typeof gx[1] === "number" ? gx[1] : 0);
+          const rightX = deadzone(typeof gx[2] === "number" ? gx[2] : (typeof gx[4] === "number" ? gx[4] : 0));
+          const rightY = deadzone(typeof gx[3] === "number" ? gx[3] : (typeof gx[5] === "number" ? gx[5] : 0));
+          const lt = gp.buttons[6];
+          const rt = gp.buttons[7];
+          const dpadAimX = (gp.buttons[15]?.pressed ? 1 : 0) + (gp.buttons[14]?.pressed ? -1 : 0);
+          const dpadAimY = (gp.buttons[13]?.pressed ? 1 : 0) + (gp.buttons[12]?.pressed ? -1 : 0);
+          const aimLen = Math.hypot(rightX, rightY);
+          const moveLen = Math.hypot(leftX, leftY);
+
+          input.left = input.left || leftX < -0.18;
+          input.right = input.right || leftX > 0.18;
+          input.up = input.up || leftY < -0.18;
+          input.down = input.down || leftY > 0.18;
+          input.moveX = leftX;
+          input.moveY = leftY;
+
+          if (aimLen > 0.2) {
+            input.aimX = rightX;
+            input.aimY = rightY;
+          } else if (dpadAimX || dpadAimY) {
+            input.aimX = dpadAimX;
+            input.aimY = dpadAimY;
+          } else if (moveLen > 0.2) {
+            input.aimX = leftX;
+            input.aimY = leftY;
+          } else {
+            input.aimX = 0;
+            input.aimY = 0;
+          }
+
+          input.shoot = input.shoot ||
+            !!(gp.buttons[0]?.pressed || gp.buttons[1]?.pressed || gp.buttons[2]?.pressed || gp.buttons[3]?.pressed ||
+               gp.buttons[4]?.pressed || gp.buttons[5]?.pressed || (lt && (lt.pressed || lt.value > 0.1)) || (rt && (rt.pressed || rt.value > 0.1)));
+          input.boost = input.boost || !!(gp.buttons[4]?.pressed || gp.buttons[5]?.pressed || (lt && (lt.pressed || lt.value > 0.1)) || (rt && (rt.pressed || rt.value > 0.1)));
+
+          const startPressed = !!gp.buttons[9]?.pressed;
+          if (startPressed && !prevStartPressed) {
+            if (state.gameOver) {
+              reset();
+            } else {
+              toggleFullscreen();
+            }
+          }
+          prevStartPressed = startPressed;
+
+          const pausePressed = !!gp.buttons[8]?.pressed;
+          if (pausePressed && !prevPausePressed && !state.gameOver) {
+            state.paused = !state.paused;
+            statusEl.textContent = state.paused ? "Paused" : "Controller connected. Running.";
+          }
+          prevPausePressed = pausePressed;
+        }
+
+        function applyKeyboardInput() {
+          input.left = keys.has("arrowleft") || keys.has("a");
+          input.right = keys.has("arrowright") || keys.has("d");
+          input.up = keys.has("arrowup") || keys.has("w");
+          input.down = keys.has("arrowdown") || keys.has("s");
+          input.moveX = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+          input.moveY = (input.down ? 1 : 0) - (input.up ? 1 : 0);
+          input.aimX = 0;
+          input.aimY = 0;
+          if (keys.has("arrowleft") || keys.has("a") || keys.has("j")) input.aimX -= 1;
+          if (keys.has("arrowright") || keys.has("d") || keys.has("l")) input.aimX += 1;
+          if (keys.has("arrowup") || keys.has("w") || keys.has("i")) input.aimY -= 1;
+          if (keys.has("arrowdown") || keys.has("s") || keys.has("k")) input.aimY += 1;
+          input.shoot = keys.has(" ") || keys.has("z");
+          input.boost = keys.has("shift");
+        }
+
+        function readInputs() {
+          applyKeyboardInput();
+          getGamepadInput();
+        }
+
+        function loop(time) {
+          if (!lastTime) lastTime = time;
+          const dt = Math.min(0.05, (time - lastTime) / 1000);
+          lastTime = time;
+
+          if (!state.gameOver && !state.paused) {
+            readInputs();
+            ship.boosting = input.boost;
+            ship.invuln = Math.max(0, ship.invuln - dt);
+            ship.flash = Math.max(0, ship.flash - dt);
+            updateShip(dt);
+            updateWorld(dt);
+            updateProjectiles(dt);
+            updateEnemies(dt);
+            updateAsteroids(dt);
+            updateCoins(dt);
+            handleCombat();
+            updateWaves(dt);
+            updateHUD();
+          }
+
+          draw();
+          requestAnimationFrame(loop);
+        }
+
+        function toggleFullscreen() {
+          const doc = document;
+          if (!doc.fullscreenElement) {
+            doc.documentElement.requestFullscreen?.().catch(() => {});
+          } else {
+            doc.exitFullscreen?.();
+          }
+        }
+
+        function ensureControllerStatus() {
+          const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+          let found = false;
+          for (let i = 0; i < pads.length; i++) {
+            if (pads[i]) {
+              found = true;
+              break;
+            }
+          }
+
+          if (!found) {
+            statusEl.textContent = "No gamepad detected.";
+          } else if (gamepadIndex === null) {
+            statusEl.textContent = "Gamepad detected. Press any button on it.";
+          }
+        }
+
+        window.addEventListener("gamepadconnected", (event) => {
+          gamepadIndex = event.gamepad.index;
+          statusEl.textContent = `Controller connected (#${event.gamepad.index + 1})`;
+        });
+
+        window.addEventListener("gamepaddisconnected", (event) => {
+          if (event.gamepad.index === gamepadIndex) {
+            gamepadIndex = null;
+            prevStartPressed = false;
+            prevPausePressed = false;
+            statusEl.textContent = "Controller disconnected.";
+          }
+        });
+
+        window.addEventListener("keydown", (event) => {
+          const key = event.key.toLowerCase();
+          if (["arrowup", "arrowdown", "arrowleft", "arrowright", "w", "a", "s", "d", "i", "j", "k", "l", "z", " ", "f", "p", "enter", "shift"].includes(key)) {
+            event.preventDefault();
+          }
+
+          if (key === "f") {
+            toggleFullscreen();
+            return;
+          }
+
+          if (key === "p") {
+            state.paused = !state.paused;
+            statusEl.textContent = state.paused ? "Paused." : "Controller connected. Running.";
+          }
+
+          if (key === "enter" && state.gameOver) {
+            reset();
+          }
+
+          keys.add(key);
+        });
+
+        window.addEventListener("keyup", (event) => {
+          keys.delete(event.key.toLowerCase());
+        });
+
+        fullscreenBtn.addEventListener("click", toggleFullscreen);
+
+        window.addEventListener("resize", resize);
+        setInterval(ensureControllerStatus, 1800);
+
+        resize();
+        buildStars();
+        reset();
+        requestAnimationFrame(loop);
+      })();
+    </script>
+  </body>
+</html>

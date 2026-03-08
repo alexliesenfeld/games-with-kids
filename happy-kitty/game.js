@@ -8,6 +8,8 @@ canvas.width = 800;
 canvas.height = 600;
 
 let score = 0;
+let lastTime = 0;
+const TARGET_FPS = 60;
 
 function resize() {
     const scale = Math.min(window.innerWidth / 800, window.innerHeight / 600);
@@ -133,7 +135,7 @@ class Player {
     takeDamage() {
         if (this.invincibilityFrames > 0) return;
         this.lives--;
-        this.invincibilityFrames = 60; // 1 second at 60fps
+        this.invincibilityFrames = 1; // 1 second
         livesDisplay.textContent = `Lives: ${this.lives}`;
         if (this.lives > 0) {
             playSound('hit');
@@ -142,10 +144,10 @@ class Player {
         }
     }
 
-    update() {
+    update(dt) {
         // Invincibility countdown
         if (this.invincibilityFrames > 0) {
-            this.invincibilityFrames--;
+            this.invincibilityFrames -= dt / 1000;
         }
 
         if (this.onGround) {
@@ -213,10 +215,11 @@ class Player {
         }
         this.jumpPressedLastFrame = jumpPressed;
 
-        // Physics
-        this.vy += GRAVITY;
-        this.x += this.vx;
-        this.y += this.vy;
+        // Physics - scale by (dt / (1000/60)) to maintain 60fps behavior
+        const dtScale = dt / (1000 / TARGET_FPS);
+        this.vy += GRAVITY * dtScale;
+        this.x += this.vx * dtScale;
+        this.y += this.vy * dtScale;
 
         // Keep in bounds (left)
         if (this.x < 0) this.x = 0;
@@ -228,7 +231,7 @@ class Player {
 
         // Update animation
         if (this.vx !== 0 && this.onGround) {
-            this.walkCycle += 0.2;
+            this.walkCycle += 0.2 * dtScale;
         } else {
             this.walkCycle = 0;
         }
@@ -375,9 +378,10 @@ class Dog {
         this.dead = false;
     }
 
-    update() {
+    update(dt) {
         if (this.dead) return;
-        this.x += this.vx;
+        const dtScale = dt / (1000 / TARGET_FPS);
+        this.x += this.vx * dtScale;
         if (this.x > this.startX + this.range) {
             this.vx = -2;
             this.facing = -1;
@@ -385,7 +389,7 @@ class Dog {
             this.vx = 2;
             this.facing = 1;
         }
-        this.walkCycle += 0.2;
+        this.walkCycle += 0.2 * dtScale;
     }
 
     draw() {
@@ -646,12 +650,19 @@ function checkPlatformCollisions() {
     });
 }
 
-function gameLoop() {
+function gameLoop(currentTime = 0) {
+    // Delta time calculation
+    let dt = currentTime - lastTime;
+    lastTime = currentTime;
+    
+    // Cap dt to avoid huge jumps (e.g. after tab switch)
+    if (dt > 100) dt = 16.67;
+
     // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     // Update
-    player.update();
+    player.update(dt);
     checkPlatformCollisions();
 
     // Camera follow
@@ -662,7 +673,7 @@ function gameLoop() {
     // Draw Clouds
     ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
     clouds.forEach(cloud => {
-        cloud.x -= cloud.speed;
+        cloud.x -= cloud.speed * (dt / (1000 / TARGET_FPS));
         if (cloud.x + 100 < 0) cloud.x = 2000;
         
         ctx.beginPath();
@@ -721,7 +732,7 @@ function gameLoop() {
     // Draw Dogs
     dogs.forEach(dog => {
         if (!goal.collected && player.lives > 0) {
-            dog.update();
+            dog.update(dt);
         }
         dog.draw();
 
@@ -818,6 +829,8 @@ function resetGame() {
         d.x = d.startX;
         d.dead = false;
     });
+    lastTime = performance.now();
 }
 
+lastTime = performance.now();
 gameLoop();
